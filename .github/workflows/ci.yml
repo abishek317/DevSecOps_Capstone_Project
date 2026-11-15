@@ -29,6 +29,13 @@ jobs:
         working-directory: backend
         run: mvn clean package
 
+      - name: Upload backend JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: backend/target/*.jar
+          if-no-files-found: error
+
   frontend-build:
     name: Build React Frontend
     runs-on: ubuntu-latest
@@ -51,6 +58,13 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+      - name: Upload frontend build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
 
   aws-authentication:
     name: Authenticate with AWS
@@ -75,3 +89,59 @@ jobs:
 
       - name: Verify AWS identity
         run: aws sts get-caller-identity
+
+  upload-to-s3:
+    name: Upload Artifacts to S3
+    runs-on: ubuntu-latest
+
+    needs:
+      - backend-build
+      - frontend-build
+      - aws-authentication
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download backend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-jar
+          path: backend-package
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::899810483894:role/HabitFlow-GitHubActions-Deploy-Role
+          aws-region: ap-south-1
+
+      - name: Package frontend build
+        run: |
+          cd frontend
+          zip -r habitflow-frontend-build.zip dist
+
+      - name: Upload backend JAR to S3
+        run: |
+          JAR_FILE=$(find backend-package -maxdepth 1 -type f -name '*.jar' ! -name '*.original' -print -quit)
+
+          if [ -z "$JAR_FILE" ]; then
+            echo "Backend JAR not found!"
+            exit 1
+          fi
+
+          aws s3 cp "$JAR_FILE" \
+            s3://habitflow-deployment-artifacts/releases/habitflow-backend.jar
+
+      - name: Upload frontend ZIP to S3
+        run: |
+          aws s3 cp frontend/habitflow-frontend-build.zip \
+            s3://habitflow-deployment-artifacts/habitflow/frontend/habitflow-frontend-build.zip
