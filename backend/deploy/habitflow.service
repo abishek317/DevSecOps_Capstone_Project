@@ -1,0 +1,14 @@
+[Unit]
+Description=CAP-28 HabitFlow Spring Boot application
+After=network.target
+
+[Service]
+User=habitflow
+WorkingDirectory=/opt/habitflow
+EnvironmentFile=-/etc/habitflow/habitflow.env
+ExecStart=/usr/bin/java -jar /opt/habitflow/app.jar
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
